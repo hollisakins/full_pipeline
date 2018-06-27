@@ -1,6 +1,6 @@
-# this is written to work in Python 2.7, as is the rest of the data pipeline, 
-# the only major difference between this and Python 3.6 is the need to use the raw_input() function
-# instead of just input(), as the two work differently in different versions
+# unlike the rest of the data pipeline, this is intended to run in Python 3.6+, 
+# as it is meant to be run locally on a GUI-enabled laptop or such and not the 
+# linux machine in the warm room.
 
 import pandas as pd
 import numpy as np
@@ -44,7 +44,7 @@ def options(head,items):
     print(('-'*(termsize-16)).center(termsize))
     for j in items:
         print('\t'+j)
-    choice = raw_input('\tChoice: ')
+    choice = input('\tChoice: ')
     return choice
 
 def print_slow(t,indent=1,speed=100):
@@ -109,7 +109,7 @@ while True:
 
     if choice=='2':
         printright('Choice Registered: Coordinate Lookup',clear=True)
-        coords = raw_input("\tRA and DEC coordinates in decimal decrees (format 'RA,DEC'): ")
+        coords = input("\tRA and DEC coordinates in decimal decrees (format 'RA,DEC'): ")
         coords = coords.split(',')
         RA = float(coords[0])
         DEC = float(coords[1])
@@ -123,7 +123,7 @@ while True:
         printright('%s data points found' % len(indices),delay=True)
 
     if choice=='1':
-        choice = raw_input('\tUCAC4 ID: ')
+        choice = input('\tUCAC4 ID: ')
         printright('Choice Registered: UCAC4 ID Star '+choice,clear=True)
 
         indices = np.nonzero(sources['id']==choice)[0]
@@ -158,8 +158,8 @@ while True:
             print('\t'+bold('Date/Time Entry: '))
             print(('-'*(termsize-16)).center(termsize))
             print('\tEnter dates as YYYY/MM/DD/HH/mm in GMT/24hr')
-            start = raw_input("\tStart time: ")
-            end = raw_input("\tEnd time: ")
+            start = input("\tStart time: ")
+            end = input("\tEnd time: ")
             printright('Choice Registered: from %s to %s' % (start,end),clear=True)
             start = datetime.strptime(start,'%Y/%m/%d/%H/%M')
             end = datetime.strptime(end,'%Y/%m/%d/%H/%M')
@@ -188,7 +188,7 @@ while True:
             sleep(0.6)
             continue
 
-        saveflag = raw_input("\tSave plot as file? [y/n]: ")
+        saveflag = input("\tSave plot as file? [y/n]: ")
         plt.figure(figsize=(10,8))
         plt.scatter(time, mags, c='k', marker='.', label=filt+' mag')
         plt.legend()
@@ -232,8 +232,8 @@ while True:
             print('\t'+bold('Date/Time Entry: '))
             print(('-'*(termsize-16)).center(termsize))
             print('\tEnter dates as YYYY/MM/DD/HH/mm in GMT/24hr')
-            start = raw_input("\tStart time: ")
-            end = raw_input("\tEnd time: ")
+            start = input("\tStart time: ")
+            end = input("\tEnd time: ")
             printright('Choice Registered: from %s to %s' % (start,end),clear=True)
             start = datetime.strptime(start,'%Y/%m/%d/%H/%M')
             end = datetime.strptime(end,'%Y/%m/%d/%H/%M')
@@ -258,7 +258,7 @@ while True:
             mags[j] = [mags[j][x] for x in range(len(mags[j])) if isinstance(mags[j][x], float)]
         
 
-        saveflag = raw_input("\tSave plot as file? [y/n]: ")
+        saveflag = input("\tSave plot as file? [y/n]: ")
         plt.figure(figsize=(10,8))
         plt.scatter(time[0], mags[0], c='r', marker='.', label='R mag')
         plt.scatter(time[1], mags[1], c='g', marker='.', label='V mag')
