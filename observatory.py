@@ -18,6 +18,7 @@ import shutil
 
 rows, columns = os.popen('stty size', 'r').read().split()
 termsize = int(columns)
+
 warnings.catch_warnings() 
 warnings.simplefilter('ignore')
 
@@ -38,12 +39,15 @@ def prnt(indent,strng,filename=False):
 
 
 ############ implement binning into this
-def makeMasters(path_to_cal,filename):
+def makeMasters(path_to_cal,writeOver=False):
     dates = [f for f in os.listdir(path_to_cal) if not f.startswith('.')] # index date folders in ArchCal
     path_to_cal += max(dates)+'/' # specify path as most recent date
     filenames = [f for f in os.listdir(path_to_cal) if not f.startswith('.')] # list of filenames to process
     print('Searching %s for calibraton files...' % path_to_cal)
-    bias,dark,Red,Green,Blue,R,V,B,Halpha,Lum,filters = [],[],[],[],[],[],[],[],[],[],[] # initialize lists
+
+    bias1,dark1,Red1,Green1,Blue1,R1,V1,B1,Halpha1,Lum1,filters1 = [],[],[],[],[],[],[],[],[],[],[] # initialize lists
+    bias2,dark2,Red2,Green2,Blue2,R2,V2,B2,Halpha2,Lum2,filters2 = [],[],[],[],[],[],[],[],[],[],[] # initialize lists
+    bias3,dark3,Red3,Green3,Blue3,R3,V3,B3,Halpha3,Lum3,filters3 = [],[],[],[],[],[],[],[],[],[],[] # initialize lists
 
     # lists are used to store the data for each calibration file and then combine into a master
     ## sort the calibration images by type and store them in arrays
@@ -51,55 +55,77 @@ def makeMasters(path_to_cal,filename):
         with fits.open(path_to_cal+filename) as hdulist:
             img = hdulist[0].data # split into data and header
             hdr = hdulist[0].header
-            if hdr['IMAGETYP']=='Bias Frame':
-                bias_header = hdr # save header for each image type to attach to master version
-                bias.append(img) # add data array to type list
-            if hdr['IMAGETYP']=='Dark Frame':
-                dark_header = hdr
-                dark.append(img)
-            if hdr['IMAGETYP']=='Flat Field':
-                flat_header = hdr
-                filters.append(hdr['FILTER']) # store the filters found in this directory in a list
+            typ = hdr['IMAGETYP']
+            binn = hdr['XBINNING']
+            if typ=='Bias Frame':
+                exec('bias'+str(binn)+'_header=hdr')
+                exec('bias'+str(binn)+'.append(img)')
+            if typ=='Dark Frame':
+                exec('dark'+str(binn)+'_header=hdr')
+                exec('dark'+str(binn)+'.append(img)')
+            if typ=='Flat Field':
+                exec(hdr['FILTER']+str(binn)+'_header=hdr')
+                exec('filters'+str(binn)+".append(hdr['FILTER'])") # store the filters found in this directory in a list
                 # so that we don't attempt to create new master flats with filters we did not have raw flats for
-                code = hdr['FILTER']+'.append(img)' # string operations to add data to filter-specific list
-                exec(code)
-    print('Indexed files:')
-    print('\tBias: %s' % len(bias))
-    print('\tDark: %s' % len(dark))
-    print('\tRed Flat: %s' % len(Red))
-    print('\tGreen Flat: %s' % len(Green))
-    print('\tBlue Flat: %s' % len(Blue))
-    print('\tR Flat: %s' % len(R))
-    print('\tV Flat: %s' % len(V))
-    print('\tB Flat: %s' % len(B))
-    print('\tHalpha Flat: %s' % len(Halpha))
-    print('\tLum Flat: %s' % len(Lum))
+                exec(hdr['FILTER']+str(binn)+'.append(img)') # string operations to add data to filter-specific list
+    print('')
+    print('Indexed files:        Binning1x1  Binning2x2  Binning3x3')
+    print('\tBias:             %s          %s          %s' % (len(bias1),len(bias2),len(bias3)))
+    print('\tDark:             %s          %s          %s' % (len(dark1),len(dark2),len(dark3)))
+    print('\tRed Flat:         %s          %s          %s' % (len(Red1),len(Red2),len(Red3)))
+    print('\tGreen Flat:       %s          %s          %s' % (len(Green1),len(Green2),len(Green3)))
+    print('\tBlue Flat:        %s          %s          %s' % (len(Blue1),len(Blue2),len(Blue3)))
+    print('\tR Flat:           %s          %s          %s' % (len(R1),len(R2),len(R3)))
+    print('\tV Flat:           %s          %s          %s' % (len(V1),len(V2),len(V3)))
+    print('\tB Flat:           %s          %s          %s' % (len(B1),len(B2),len(B3)))
+    print('\tHalpha Flat:      %s          %s          %s' % (len(Halpha1),len(Halpha2),len(Halpha3)))
+    print('\tLum Flat:         %s          %s          %s' % (len(Lum1),len(Lum2),len(Lum3)))
+    print('')
 
     ## make the masters
-    bias_master = np.median(np.array(bias),axis=0)
-    print('Constructed master bias')
-    dark_master = np.median(np.array(dark)-bias_master,axis=0) # scalable dark with bias already removed
-    print('Constructed master dark')
+    for i in ['1','2','3']:
+        exec('s=np.size(bias'+i+')')
+        if not s==0:
+            exec('bias'+i+'_master=np.median(np.array(bias'+i+'),axis=0)')
+            print('Constructed a master bias with binning %sx%s' % (i,i))
 
-    for i in np.unique(filters): # for each UNIQUE filter
-        code = i+"_master = np.median("+i+",axis=0)/np.max(np.median("+i+",axis=0))"  # more string operations
-        # normalize flat field
-        exec(code)
-        print('Constructed master %s flat' % i)
+    for i in ['1','2','3']:
+        exec('s=np.size(dark'+i+')')
+        if not s==0:
+            try:
+                exec('dark'+i+'_master=np.median(np.array(dark'+i+')-bias'+i+'_master,axis=0)')
+                print('Constructed a scalable master dark with binning %sx%s' % (i,i))
+            except NameError:
+                print('* No bias master for binning %sx%s, failed to create scalable dark. Wrote to DR_errorlog.txt' % (i,i))
+                with open('DR_errorlog.txt','a') as erlog:
+                    erlog.write('Failed to create scalable dark with binning %sx%s, no bias master present at'+strftime("%Y%m%d %H:%M GMT", gmtime()))
 
+
+    for j in ['1','2','3']:
+        exec('f=np.unique(filters'+j+')')
+        for i in f: # for each UNIQUE filter
+            exec('s=np.size('+i+j+')')
+            if not s==0:
+                exec(i+j+"_master = np.median("+i+j+",axis=0)/np.max(np.median("+i+j+",axis=0))")  # more string operations
+                # normalize flat field
+                print('Constructed master %s flat with binning %sx%s' % (i,j,j))
     ## write the masters to fits files
-    for j in ['bias','dark']: # for now: do not overwrite old bias / dark masters
-        code = "fits.writeto('MasterCal/"+j+"_master.fit',"+j+"_master,header="+j+"_header,overwrite=False)"
-        try:
-            exec(code)
-            print('Wrote master %s to file MasterCal/%s_master.fit' % (j,j))   
-        except:
-            print('Bias or dark master already exists, no new file written')
-            pass 
-    for j in np.unique(filters): # only overwrite flats for the unique filters that we chose to update that night
-        code = "fits.writeto('MasterCal/flat_master_"+j+".fit',"+j+"_master,header=flat_header,overwrite=True)"
-        exec(code)   
-        print('Wrote master %s flat to file MasterCal/flat_master_%s.fit' % (j,j))
+    for i in ['1','2','3']:
+        for j in ['bias','dark']: # for now: do not overwrite old bias / dark masters
+            if j+i+'_master' in locals():
+                try:
+                    code = "fits.writeto('MasterCal/binning"+i+'/'+j+"_master.fit',"+j+i+'_master, header='+j+i+'_header,overwrite='+str(writeOver)+')'
+                    exec(code)
+                    print('Wrote master %s to file MasterCal/binning%s/%s_master.fit' % (j,i,j))   
+                except:
+                    print('Bias or dark master already exists, no new file written')
+
+    for i in ['1','2','3']:
+        exec('f=np.unique(filters'+i+')')
+        for j in f: # only overwrite flats for the unique filters that we chose to update that night
+            code = "fits.writeto('MasterCal/binning"+i+'/'+"flat_master_"+j+".fit',"+j+i+"_master,header="+j+i+"_header,overwrite=True)"
+            exec(code)   
+            print('Wrote master %s flat to file MasterCal/binning%s/flat_master_%s.fit' % (j,i,j))
 
 
 
@@ -164,6 +190,8 @@ class Field:
         self.dates = [f for f in os.listdir(self.uncalibrated_path) if not f.startswith('.')] # index date folders in ArchSky
         self.uncalibrated_path += max(self.dates)+'/' # specify path as most recent date
         self.calibrated_path += max(self.dates)+'/'
+        if not os.path.exists(self.calibrated_path):
+            os.makedirs(self.calibrated_path)
         all_files = [f for f in os.listdir(self.uncalibrated_path) if os.path.isfile(os.path.join(self.uncalibrated_path,f)) and not f.startswith('.')]
         self.list_of_files  = [f for f in all_files if not f.endswith('.SRC')]
         src_files = [f for f in all_files if f.endswith('.SRC')]

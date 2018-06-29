@@ -1,6 +1,6 @@
-import observatory 
+import observatory as obs
 
-f = observatory.Field()
+f = obs.Field()
 slow = False 
 f.initialize()
 
@@ -10,6 +10,8 @@ for filename in f.list_of_files:
     if f.calibrated():
         f.openFits(filename,calibrated=True)
         f.Extract()
+
+obs.uploadData()
 
 
 
