@@ -7,23 +7,29 @@ import numpy as np
 import math 
 from datetime import datetime
 from time import strftime, gmtime, strptime, sleep
-import matplotlib.pyplot as plt
-from matplotlib.patches import Ellipse
 import os 
 import warnings 
 import sep 
 import csv
 import sys
 import shutil
+from collections import OrderedDict
 
+# defines the width of the console to print output more clearly 
 rows, columns = os.popen('stty size', 'r').read().split()
 termsize = int(columns)
 
+# astropy gives warning for a depricated date format in TheSkyX fits header,
+# we dont need to see that so these two lines supress all warnings
+# comment them out when testing
 warnings.catch_warnings() 
 warnings.simplefilter('ignore')
 
-slow = False
+slow = False # if slow=True it will pause between printing each line just to make it easier to read
+# function for printing the output consistently 
+
 def prnt(indent,strng,filename=False):
+    # if filename=True it will print the name of the file at the left
     if slow:
         if not filename:
             print(' '*len(indent+': ')+strng)
@@ -37,29 +43,50 @@ def prnt(indent,strng,filename=False):
         else: 
             print(indent+': '+strng)
 
+# simple function to print a line at the top of the screen that shows what process is going on 
+def header(i):
+    print('-'*int((termsize-len(i)-2)/2)+' '+i+' '+'-'*int((termsize-len(i)-2)/2))
+    print('')
 
-############ implement binning into this
+
 def makeMasters(path_to_cal,writeOver=False):
+    '''Index calibration files and generate masters. 
+
+    Takes argument path_to_cal as the path to the calibration files, but will only search in 
+    the most recent date directory in that path. For example, makeMasters('ArchCal/') will search
+    'ArchCal/20180701/' if that is the most recent date directory available.
+
+    Opt. Argument writeOver=False can be changed to True to allow older bias & dark frames to be
+    over written by more recent ones.
+    '''
+
     dates = [f for f in os.listdir(path_to_cal) if not f.startswith('.')] # index date folders in ArchCal
     path_to_cal += max(dates)+'/' # specify path as most recent date
-    filenames = [f for f in os.listdir(path_to_cal) if not f.startswith('.')] # list of filenames to process
-    print('Searching %s for calibraton files...' % path_to_cal)
-
+    filenames = [f for f in os.listdir(path_to_cal) if os.path.isfile(os.path.join(path_to_cal,f)) if not f.startswith('.')] # list of filenames to process
+    
+    print('\033c')
+    header('Making Masters')
+    print('\tSearching %s for calibraton files...' % path_to_cal)
+    print('\tIndexed %s files' % len(filenames))
+    
     bias1,dark1,Red1,Green1,Blue1,R1,V1,B1,Halpha1,Lum1,filters1 = [],[],[],[],[],[],[],[],[],[],[] # initialize lists
     bias2,dark2,Red2,Green2,Blue2,R2,V2,B2,Halpha2,Lum2,filters2 = [],[],[],[],[],[],[],[],[],[],[] # initialize lists
     bias3,dark3,Red3,Green3,Blue3,R3,V3,B3,Halpha3,Lum3,filters3 = [],[],[],[],[],[],[],[],[],[],[] # initialize lists
-
     # lists are used to store the data for each calibration file and then combine into a master
-    ## sort the calibration images by type and store them in arrays
+    # each element in these lists will be a NxN numpy array of the fits data
+
+    print('\tSorting files...')
+
+    # sort the calibration images by type and store them in arrays
     for filename in filenames:
-        with fits.open(path_to_cal+filename) as hdulist:
+        with fits.open(path_to_cal+filename) as hdulist: 
             img = hdulist[0].data # split into data and header
             hdr = hdulist[0].header
-            typ = hdr['IMAGETYP']
-            binn = hdr['XBINNING']
+            typ = hdr['IMAGETYP'] # save image type as variable
+            binn = hdr['XBINNING'] # save binning as variable
             if typ=='Bias Frame':
-                exec('bias'+str(binn)+'_header=hdr')
-                exec('bias'+str(binn)+'.append(img)')
+                exec('bias'+str(binn)+'_header=hdr') # save the header to write back into the master
+                exec('bias'+str(binn)+'.append(img)') # add the data to the list with respective type/binning
             if typ=='Dark Frame':
                 exec('dark'+str(binn)+'_header=hdr')
                 exec('dark'+str(binn)+'.append(img)')
@@ -67,75 +94,81 @@ def makeMasters(path_to_cal,writeOver=False):
                 exec(hdr['FILTER']+str(binn)+'_header=hdr')
                 exec('filters'+str(binn)+".append(hdr['FILTER'])") # store the filters found in this directory in a list
                 # so that we don't attempt to create new master flats with filters we did not have raw flats for
-                exec(hdr['FILTER']+str(binn)+'.append(img)') # string operations to add data to filter-specific list
+                exec(hdr['FILTER']+str(binn)+'.append(img)') 
+    
     print('')
-    print('Indexed files:        Binning1x1  Binning2x2  Binning3x3')
-    print('\tBias:             %s          %s          %s' % (len(bias1),len(bias2),len(bias3)))
-    print('\tDark:             %s          %s          %s' % (len(dark1),len(dark2),len(dark3)))
-    print('\tRed Flat:         %s          %s          %s' % (len(Red1),len(Red2),len(Red3)))
-    print('\tGreen Flat:       %s          %s          %s' % (len(Green1),len(Green2),len(Green3)))
-    print('\tBlue Flat:        %s          %s          %s' % (len(Blue1),len(Blue2),len(Blue3)))
-    print('\tR Flat:           %s          %s          %s' % (len(R1),len(R2),len(R3)))
-    print('\tV Flat:           %s          %s          %s' % (len(V1),len(V2),len(V3)))
-    print('\tB Flat:           %s          %s          %s' % (len(B1),len(B2),len(B3)))
-    print('\tHalpha Flat:      %s          %s          %s' % (len(Halpha1),len(Halpha2),len(Halpha3)))
-    print('\tLum Flat:         %s          %s          %s' % (len(Lum1),len(Lum2),len(Lum3)))
+    print('\tIndexed files:        Binning1x1  Binning2x2  Binning3x3')
+    print('\t\tBias:             %s          %s          %s' % (len(bias1),len(bias2),len(bias3)))
+    print('\t\tDark:             %s          %s          %s' % (len(dark1),len(dark2),len(dark3)))
+    print('\t\tRed Flat:         %s          %s          %s' % (len(Red1),len(Red2),len(Red3)))
+    print('\t\tGreen Flat:       %s          %s          %s' % (len(Green1),len(Green2),len(Green3)))
+    print('\t\tBlue Flat:        %s          %s          %s' % (len(Blue1),len(Blue2),len(Blue3)))
+    print('\t\tR Flat:           %s          %s          %s' % (len(R1),len(R2),len(R3)))
+    print('\t\tV Flat:           %s          %s          %s' % (len(V1),len(V2),len(V3)))
+    print('\t\tB Flat:           %s          %s          %s' % (len(B1),len(B2),len(B3)))
+    print('\t\tHalpha Flat:      %s          %s          %s' % (len(Halpha1),len(Halpha2),len(Halpha3)))
+    print('\t\tLum Flat:         %s          %s          %s' % (len(Lum1),len(Lum2),len(Lum3)))
     print('')
 
     ## make the masters
-    for i in ['1','2','3']:
-        exec('s=np.size(bias'+i+')')
-        if not s==0:
-            exec('bias'+i+'_master=np.median(np.array(bias'+i+'),axis=0)')
-            print('Constructed a master bias with binning %sx%s' % (i,i))
+    for i in ['1','2','3']: # for each binning factor 
+        exec('s=np.size(bias'+i+')') # define var s as the size of the list
+        if not s==0: # if the size is nonzero, there is data for that type & binning
+            exec('bias'+i+'_master=np.median(np.array(bias'+i+'),axis=0)') # define bias master as the 
+            print('\tConstructed a master bias with binning %sx%s' % (i,i))
 
     for i in ['1','2','3']:
         exec('s=np.size(dark'+i+')')
         if not s==0:
-            try:
-                exec('dark'+i+'_master=np.median(np.array(dark'+i+')-bias'+i+'_master,axis=0)')
-                print('Constructed a scalable master dark with binning %sx%s' % (i,i))
-            except NameError:
-                print('* No bias master for binning %sx%s, failed to create scalable dark. Wrote to DR_errorlog.txt' % (i,i))
+            try: # try to  make dark master
+                exec('dark'+i+'_master=np.median(np.array(dark'+i+')-bias'+i+'_master,axis=0)') # make dark master by removing the bias first
+                print('\tConstructed a scalable master dark with binning %sx%s' % (i,i))
+            except NameError: # if you get a NameError:
+                print('\tNo bias master for binning %sx%s, failed to create scalable dark. Wrote to DR_errorlog.txt' % (i,i))
                 with open('DR_errorlog.txt','a') as erlog:
                     erlog.write('Failed to create scalable dark with binning %sx%s, no bias master present at'+strftime("%Y%m%d %H:%M GMT", gmtime()))
 
 
-    for j in ['1','2','3']:
-        exec('f=np.unique(filters'+j+')')
+    for j in ['1','2','3']: 
+        exec('f=np.unique(filters'+j+')') # establish unique filters 
         for i in f: # for each UNIQUE filter
             exec('s=np.size('+i+j+')')
-            if not s==0:
-                exec(i+j+"_master = np.median("+i+j+",axis=0)/np.max(np.median("+i+j+",axis=0))")  # more string operations
-                # normalize flat field
-                print('Constructed master %s flat with binning %sx%s' % (i,j,j))
-    ## write the masters to fits files
+            if not s==0: 
+                exec(i+j+"_master = np.median("+i+j+",axis=0)/np.max(np.median("+i+j+",axis=0))")  # normalize flat field and make master
+                print('\tConstructed master %s flat with binning %sx%s' % (i,j,j))
+    
+    # write the masters to fits files
     for i in ['1','2','3']:
         for j in ['bias','dark']: # for now: do not overwrite old bias / dark masters
             if j+i+'_master' in locals():
                 try:
                     code = "fits.writeto('MasterCal/binning"+i+'/'+j+"_master.fit',"+j+i+'_master, header='+j+i+'_header,overwrite='+str(writeOver)+')'
                     exec(code)
-                    print('Wrote master %s to file MasterCal/binning%s/%s_master.fit' % (j,i,j))   
+                    print('\tWrote master %s to file MasterCal/binning%s/%s_master.fit' % (j,i,j))   
                 except:
-                    print('Bias or dark master already exists, no new file written')
+                    print('\tBias or dark master already exists, no new file written')
 
     for i in ['1','2','3']:
         exec('f=np.unique(filters'+i+')')
         for j in f: # only overwrite flats for the unique filters that we chose to update that night
             code = "fits.writeto('MasterCal/binning"+i+'/'+"flat_master_"+j+".fit',"+j+i+"_master,header="+j+i+"_header,overwrite=True)"
             exec(code)   
-            print('Wrote master %s flat to file MasterCal/binning%s/flat_master_%s.fit' % (j,i,j))
+            print('\tWrote master %s flat to file MasterCal/binning%s/flat_master_%s.fit' % (j,i,j))
+    
+    print('\n\tComplete')
+    sleep(3)
+    print('\033c')
 
 
 
 class Field:
     def __init__(self):
-        self.calibrated_path = 'Calibrated Images/'
+        # when a Field object is created, define some variables
+        self.calibrated_path = 'Calibrated Images/' 
         self.uncalibrated_path = 'ArchSky/'
         self.path_to_cal = 'MasterCal/'
-        self.c = False
-        self.aperture_size = 10.0
+        self.calibrated = False
+        self.aperture_size = 80.0
 
     def openFits(self,filename,calibrated=False):
         self.filename = filename
@@ -179,12 +212,12 @@ class Field:
         fits.writeto('Calibrated Images/'+day+'/'+filename.replace(".fit","_calibrated.fit"),data,head,overwrite=True)
         prnt(self.filename,'Wrote file to Calibrated Images/'+day)
         print(' ')
-        self.c = True
+        self.calibrated = True
 
     def initialize(self):
         '''Index the files we need to calibrate'''
         print("\033c")
-        print('-'*termsize)
+        header('Calibration & Source Extraction')
         self.columnsWritten = True
         ## specify source files
         self.dates = [f for f in os.listdir(self.uncalibrated_path) if not f.startswith('.')] # index date folders in ArchSky
@@ -293,9 +326,6 @@ class Field:
 
         del flat_fits 
 
-    def calibrated(self):
-        return self.c
-
     def Source(self): # gathers source extraction data from .SRC file
         src = np.loadtxt(self.calibrated_path+self.filename.replace('.fits','.SRC'))
         objects = src[:,0:2] # pixel X,Y coordinates of the objects in question
@@ -333,9 +363,10 @@ class Field:
 
 
         v = Vizier(columns=['UCAC4','+_r','RAJ2000','DEJ2000','Bmag','Vmag','rmag'])
-        output = {'id':[],'RA_C':[],'DEC_C':[],'RA_M':[],'DEC_M':[],'DIF':[],'MAG_R':[],'MAG_V':[],'MAG_B':[],'CMAG_R':[],'CMAG_V':[],'CMAG_B':[],'DATETIME':[],'IMGNAME':[]}
+        output = OrderedDict([('id',[]),('RA_C',[]),('DEC_C',[]),('RA_M',[]),('DEC_M',[]),('DIF',[]),('MAG_R',[]),('MAG_V',[]),('MAG_B',[]),('CMAG_R',[]),('CMAG_V',[]),('CMAG_B',[]),('DATETIME',[]),('IMGNAME',[])])
         cmags = []
         misfires = 0
+
         
         for n in range(len(objects)):
             catalog = 'UCAC4'
@@ -393,7 +424,7 @@ class Field:
         print(' ')
         sleep(1)
         print("\033c")
-        print('-'*termsize)
+        header('Calibration & Source Extraction')
 
         cmags_nonan = [k for k in cmags if not math.isnan(float(k))]
         median_c = np.median(np.array(cmags_nonan))
@@ -415,33 +446,33 @@ class Field:
 
         return output
 
-    def Plot(self):
-        hdr, img = self.hdr, self.img
-        proj = wcs.WCS(hdr)
-        fig = plt.figure(figsize=(13,10)) 
-        ax = fig.add_subplot(111,projection=proj)
-        m, s = np.mean(img), np.std(img)
-        im = ax.imshow(img, interpolation='nearest', cmap='gray',
-                    vmin=m-s, vmax=m+s, origin='lower')
+    # def Plot(self):
+        #     hdr, img = self.hdr, self.img
+        #     proj = wcs.WCS(hdr)
+        #     fig = plt.figure(figsize=(13,10)) 
+        #     ax = fig.add_subplot(111,projection=proj)
+        #     m, s = np.mean(img), np.std(img)
+        #     im = ax.imshow(img, interpolation='nearest', cmap='gray',
+        #                 vmin=m-s, vmax=m+s, origin='lower')
 
-        overlay = ax.get_coords_overlay('fk5')
-        overlay.grid(color='white', ls='dotted')
-        overlay[0].set_axislabel('Right Ascension (J2000)')
-        overlay[1].set_axislabel('Declination (J2000)')
+        #     overlay = ax.get_coords_overlay('fk5')
+        #     overlay.grid(color='white', ls='dotted')
+        #     overlay[0].set_axislabel('Right Ascension (J2000)')
+        #     overlay[1].set_axislabel('Declination (J2000)')
 
-        # plot an ellipse for each object
-        for i in range(len(self.source['X'])):
-            e = Ellipse(xy=(self.source['X'][i], self.source['Y'][i]),
-                        width=6*self.source['A'][i],
-                        height=6*self.source['B'][i],
-                        angle=self.source['theta'][i])
-            e.set_facecolor('none')
-            e.set_edgecolor('red')
-            ax.add_artist(e)
-        name = self.filename.replace('Calibrated Images/','TestImages/')
-        name = name.replace('.fits','.jpg')
-        plt.savefig(name)
-        print('    Created plot of %s' % self.filename)
+        #     # plot an ellipse for each object
+        #     for i in range(len(self.source['X'])):
+        #         e = Ellipse(xy=(self.source['X'][i], self.source['Y'][i]),
+        #                     width=6*self.source['A'][i],
+        #                     height=6*self.source['B'][i],
+        #                     angle=self.source['theta'][i])
+        #         e.set_facecolor('none')
+        #         e.set_edgecolor('red')
+        #         ax.add_artist(e)
+        #     name = self.filename.replace('Calibrated Images/','TestImages/')
+        #     name = name.replace('.fits','.jpg')
+        #     plt.savefig(name)
+        #     print('    Created plot of %s' % self.filename)
 
 
     def writeData(self):

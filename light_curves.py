@@ -212,7 +212,7 @@ while True:
             if saveflag=='y':
                 filename = 'star_%s' % choice
         if saveflag=='y':
-            plt.savefig(filename)
+            plt.savefig('plots/'+filename)
         plt.show()
 
 
@@ -284,7 +284,7 @@ while True:
             if saveflag=='y':
                 filename = 'star_%s' % choice
         if saveflag=='y':
-            plt.savefig(filename)
+            plt.savefig('plots/'+filename)
         plt.show()
 
     if saveflag=='y':
