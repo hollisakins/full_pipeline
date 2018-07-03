@@ -128,7 +128,6 @@ def makeMasters(path_to_cal,writeOver=False):
                 with open('DR_errorlog.txt','a') as erlog:
                     erlog.write('Failed to create scalable dark with binning %sx%s, no bias master present at'+strftime("%Y%m%d %H:%M GMT", gmtime()))
 
-
     for j in ['1','2','3']: 
         exec('f=np.unique(filters'+j+')') # establish unique filters 
         for i in f: # for each UNIQUE filter
@@ -137,6 +136,7 @@ def makeMasters(path_to_cal,writeOver=False):
                 exec(i+j+"_master = np.median("+i+j+",axis=0)/np.max(np.median("+i+j+",axis=0))")  # normalize flat field and make master
                 print('\tConstructed master %s flat with binning %sx%s' % (i,j,j))
     
+
     # write the masters to fits files
     for i in ['1','2','3']:
         for j in ['bias','dark']: # for now: do not overwrite old bias / dark masters
@@ -217,7 +217,7 @@ class Field:
     def initialize(self):
         '''Index the files we need to calibrate'''
         print("\033c") # clear the screen
-        header('Calibration & Source Extraction') # print the header
+        header('Initialization') # print the header
         self.columnsWritten = True # if we need to write the columns into the sources.csv file
         ## specify source files
         self.dates = [f for f in os.listdir(self.uncalibrated_path) if not f.startswith('.')] # index date folders in ArchSky
@@ -228,19 +228,22 @@ class Field:
         all_files = [f for f in os.listdir(self.uncalibrated_path) if os.path.isfile(os.path.join(self.uncalibrated_path,f)) and not f.startswith('.')]
         self.list_of_files  = [f for f in all_files if not f.endswith('.SRC')]
         src_files = [f for f in all_files if f.endswith('.SRC')]
+        print('\tSearching %s for sky images...' % self.uncalibrated_path)
+        sleep(0.3)
+        print('\tSearching %s for calibration files...' % self.path_to_cal)
+        sleep(0.5)
+        print('\033c')
 
-        print('Searching %s for sky images...' % self.uncalibrated_path)
-        print('Searching %s for calibration files...' % self.path_to_cal)
 
         for filename in src_files:
             shutil.copy(self.uncalibrated_path+filename, self.calibrated_path) # copy over SRC files since we need them later but obviously dont need to calibrate them
 
 
     def Reduce(self):
+        header('Calibration & Source Extraction')
         light_h,light = self.hdr,self.img # bring up the hdr and image
         prnt(self.filename,'Successfully opened '+light_h['FILTER']+' image in '+self.uncalibrated_path,filename=True)
-        self.path_to_cal = 'MasterCal/' # must reset path each time you reduce an image 
-        self.path_to_cal += 'binning'+str(light_h['XBINNING'])+'/' # search for calibration files in binning-specific folder
+        self.path_to_cal = 'MasterCal/binning'+str(light_h['XBINNING'])+'/' # search for calibration files in binning-specific folder
      
         # open bias frame
         try: 
