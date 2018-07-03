@@ -169,6 +169,7 @@ class Field:
         self.path_to_cal = 'MasterCal/'
         self.calibrated = False
         self.aperture_size = 80.0
+        self.max_temp = -3.0
 
     def openFits(self,filename,calibrated=False):
         self.filename = filename
@@ -176,23 +177,22 @@ class Field:
             with fits.open(self.uncalibrated_path+self.filename) as hdulist:
                 self.hdr = hdulist[0].header
                 img = hdulist[0].data
-                self.img = np.array(img,dtype='<f4')
-        else:
+                self.img = np.array(img,dtype='<f4') 
+        else: # otherwise we need the calibrated path
             with fits.open(self.calibrated_path+self.filename.replace('.fits','_calibrated.fits')) as hdulist:
                 self.hdr = hdulist[0].header
                 img = hdulist[0].data
                 self.img = np.array(img,dtype='<f4')
 
-    @staticmethod
-    def calibrate(h,image):
+    def calibrate(self,h,image): # check to see whether or not we need to calibrate the file
         if np.size(image)==8487264 or np.size(image)==942748: # need to add number for 2x2 binning
-            if h['CCD-TEMP']<=-3.0:
+            if h['CCD-TEMP']<=self.max_temp: 
                 if h.get('CALSTAT',default=0)==0: 
-                    return True
+                    return True # True means we calibrate
                 if h.get('CALSTAT',default=0)=='BDF' or h.get('CALSTAT',default=0)=='DF':
-                    return 'Redundant' 
+                    return 'Redundant' # Redundant calibration
                 if h.get('CALSTAT',default=0)=='D':
-                    return 'OnlyDark'
+                    return 'OnlyDark' # already had an auto dark
             else:
                 return 'Temp'    
         else:
@@ -205,24 +205,24 @@ class Field:
         else:
             head['CALSTAT']='BDF' # otherwise set the value of calstat to BDF
 
-    def save_file(self,head,data,day,filename):
-        if not os.path.exists('Calibrated Images/'+day): 
-            os.makedirs('Calibrated Images/'+day) 
+    def save_file(self,head,data,filename):
+        if not os.path.exists(self.calibrated_path): 
+            os.makedirs(self.calibrated_path) # make a directory if there isnt one
         
-        fits.writeto('Calibrated Images/'+day+'/'+filename.replace(".fit","_calibrated.fit"),data,head,overwrite=True)
-        prnt(self.filename,'Wrote file to Calibrated Images/'+day)
+        fits.writeto(self.calibrated_path+filename.replace(".fit","_calibrated.fit"),data,head,overwrite=True)
+        prnt(self.filename,'Wrote file to '+self.calibrated_path)
         print(' ')
-        self.calibrated = True
+        self.calibrated = True # now its calibrated so we change this variable to True
 
     def initialize(self):
         '''Index the files we need to calibrate'''
-        print("\033c")
-        header('Calibration & Source Extraction')
-        self.columnsWritten = True
+        print("\033c") # clear the screen
+        header('Calibration & Source Extraction') # print the header
+        self.columnsWritten = True # if we need to write the columns into the sources.csv file
         ## specify source files
         self.dates = [f for f in os.listdir(self.uncalibrated_path) if not f.startswith('.')] # index date folders in ArchSky
-        self.uncalibrated_path += max(self.dates)+'/' # specify path as most recent date
-        self.calibrated_path += max(self.dates)+'/'
+        self.uncalibrated_path += max(self.dates)+'/' # specify both paths as most recent date
+        self.calibrated_path += max(self.dates)+'/' 
         if not os.path.exists(self.calibrated_path):
             os.makedirs(self.calibrated_path)
         all_files = [f for f in os.listdir(self.uncalibrated_path) if os.path.isfile(os.path.join(self.uncalibrated_path,f)) and not f.startswith('.')]
@@ -233,16 +233,18 @@ class Field:
         print('Searching %s for calibration files...' % self.path_to_cal)
 
         for filename in src_files:
-            shutil.copy(self.uncalibrated_path+filename, self.calibrated_path)
+            shutil.copy(self.uncalibrated_path+filename, self.calibrated_path) # copy over SRC files since we need them later but obviously dont need to calibrate them
 
 
-    def Reduce(self):                
-        light_h,light = self.hdr,self.img
+    def Reduce(self):
+        light_h,light = self.hdr,self.img # bring up the hdr and image
         prnt(self.filename,'Successfully opened '+light_h['FILTER']+' image in '+self.uncalibrated_path,filename=True)
-        self.path_to_cal = 'MasterCal/'
-        self.path_to_cal += 'binning'+str(light_h['XBINNING'])+'/'
+        self.path_to_cal = 'MasterCal/' # must reset path each time you reduce an image 
+        self.path_to_cal += 'binning'+str(light_h['XBINNING'])+'/' # search for calibration files in binning-specific folder
+     
+        # open bias frame
         try: 
-            self.bias_fits = fits.open(self.path_to_cal+'bias_master.fit') 
+            bias_fits = fits.open(self.path_to_cal+'bias_master.fit') 
             prnt(self.filename,'Successfully opened bias master %s' % self.path_to_cal+'bias_master.fit')
         except: # if you encounter error
             prnt(self.filename,'Failed to open bias master %s' % self.path_to_cal+'bias_master.fit. Wrote to DR_errorlog.txt')
@@ -250,12 +252,12 @@ class Field:
                 erlog.write('Missing bias master at '+strftime("%Y%m%d %H:%M GMT", gmtime())+'. Auto DR halted.\n')
             sys.exit() # exit the program since you can't calibrate files without a bias frame
 
-        self.bias_h = self.bias_fits[0].header # split into header and data
-        self.bias = self.bias_fits[0].data
+        bias_h = bias_fits[0].header # split into header and data
+        bias = bias_fits[0].data
 
-
+        # open dark frame
         try:
-            self.dark_fits = fits.open(self.path_to_cal+'dark_master.fit') 
+            dark_fits = fits.open(self.path_to_cal+'dark_master.fit') 
             prnt(self.filename,'Successfully opened dark master %s' % self.path_to_cal+'dark_master.fit')
         except:
             prnt(self.filename,'Failed to open dark master %s' % self.path_to_cal+'dark_master.fit. Wrote to DR_errorlog.txt')
@@ -263,13 +265,14 @@ class Field:
                 erlog.write('Missing dark master at '+strftime("%Y%m%d %H:%M GMT", gmtime())+'. Auto DR halted.\n')
             sys.exit()
 
-        self.dark_h = self.dark_fits[0].header
-        self.dark = self.dark_fits[0].data
-        self.dxptime = self.dark_h['EXPTIME'] # store the exposure time for the dark master for scaling purposes
+        dark_h = dark_fits[0].header
+        dark = dark_fits[0].data
+        
+        dxptime = dark_h['EXPTIME'] # store the exposure time for the dark master for scaling purposes
         exptime = light_h['EXPTIME'] # store light image exposure time
 
-
-        try: # open filter-specific flat
+        # open filter-specific flat field
+        try: 
             flat_fits = fits.open(self.path_to_cal+'flat_master_'+light_h['FILTER']+'.fit') 
             prnt(self.filename,'Successfully opened '+self.path_to_cal+'flat_master_'+light_h['FILTER']+'.fit')
         except:
@@ -281,50 +284,44 @@ class Field:
         flat_h = flat_fits[0].header
         flat = flat_fits[0].data
 
-        ## perform the actual data reduction
-        if self.calibrate(light_h,light)==True:
+        # perform the actual data reduction
+        if self.calibrate(light_h,light)==True: # if we need to calibrated
             prnt(self.filename,'Calibrating image...' )
 
-            bias_corrected_image = light - self.bias # subtract the bias
-            dark_corrected_image = bias_corrected_image - (exptime/self.dxptime)*self.dark # scale the dark linearly w/ exptime and subtract
+            bias_corrected_image = light - bias # subtract the bias
+            dark_corrected_image = bias_corrected_image - (exptime/dxptime)*dark # scale the dark linearly w/ exptime and subtract
             final_image = dark_corrected_image / flat # divide by the flat field (already normalized)
             
             self.write_to_header(light_h)
-            self.save_file(light_h, final_image, max(self.dates),self.filename)
+            self.save_file(light_h, final_image,self.filename)
 
 
-        elif self.calibrate(light_h,light)=='OnlyDark': # auto dark
+        elif self.calibrate(light_h,light)=='OnlyDark': # if we only had an auto dark
             prnt(self.filename,'Calibrating image...' )
             
             final_image = light / flat # divide by the flat field
 
             self.write_to_header(light_h)
-            self.save_file(light_h, final_image, max(self.dates),self.filename)
+            self.save_file(light_h, final_image,self.filename)
 
 
-        elif self.calibrate(light_h,light)=='Redundant':
+        elif self.calibrate(light_h,light)=='Redundant': # if it was already calibrated
             with open('DR_errorlog.txt','a') as erlog:
                 erlog.write('Attempted redundant calibration on '+self.filename+' at '+strftime("%Y%m%d %H:%M GMT", gmtime())+'\n')
             prnt(self.filename,'Image already calibrated')
-            self.save_file(light_h, light, max(self.dates),self.filename)
-            
+            self.save_file(light_h, light,self.filename) # still save the file because we can still use it
 
-        elif self.calibrate(light_h,light)=='Binning':
-            with open('DR_errorlog.txt','a') as erlog:
-                erlog.write('Image '+self.filename+' not 1x1 binning, rejected calibration at '+strftime("%Y%m%d %H:%M GMT", gmtime())+'.')
-            prnt(self.filename,'Image not 1x1 binning')
-
-        elif self.calibrate(light_h,light)=='Temp':
+        elif self.calibrate(light_h,light)=='Temp': # if its temp is wrong
             with open('DR_errorlog.txt','a') as erlog:
                 erlog.write('Image '+self.filename+' temp '+light_h['CCD-TEMP']+' degrees C, rejected calibration at '+strftime("%Y%m%d %H:%M GMT", gmtime())+'.')
-            prnt(self.filename,'Image taken at > -4 degrees C')
+            prnt(self.filename,'Image taken at > '+str(self.max_temp)+' degrees C')
 
         elif self.calibrate(light_h,light)=='Size':
             with open('DR_errorlog.txt','a') as erlog:
                 erlog.write('Image '+self.filename+' not full size, rejected calibration at '+strftime("%Y%m%d %H:%M GMT", gmtime())+'.')
             prnt(self.filename,'Image not full size')
 
-        del flat_fits 
+        del flat_fits,bias_fits,dark_fits
 
     def Source(self): # gathers source extraction data from .SRC file
         src = np.loadtxt(self.calibrated_path+self.filename.replace('.fits','.SRC'))
@@ -335,46 +332,53 @@ class Field:
         B = src[:,9]
         theta = src[:,10]
         prnt(self.filename,'Gathered source data')
-        return {'obj':objects,'X':X_pos,'Y':Y_pos,'A':A,'B':B,'theta':theta}
+        return {'obj':objects,'X':X_pos,'Y':Y_pos,'A':A,'B':B,'theta':theta} # return source data as dict
 
     def Convert(self): # converts obj list in pixel coordinate to RA-dec coordinates
         hdr = self.hdr
-        w = wcs.WCS(hdr)
+        w = wcs.WCS(hdr) # gets WCS matrix from the header
         objects = self.source['obj']
-        world = w.wcs_pix2world(objects, 1)
+        world = w.wcs_pix2world(objects, 1) # World Coorindate System function converts matrix in fits header to RA/Dec
         prnt(self.filename,'Converted coordinates to RA/Dec')
         return world
 
     def Photometry(self):
         ### perform aperture photometry
         hdr,img = self.hdr,self.img
-        bkg = sep.Background(img)
-        img_sub = img - bkg
-        flux, fluxerr, flag = sep.sum_circle(img_sub, self.source['X'], self.source['Y'], self.aperture_size, err=bkg.globalrms, gain=1.0)
-        magnitudes = -2.5*np.log(flux)
-        median_i = np.median(magnitudes)
-
+        bkg = sep.Background(img) # get background noise from image (maybe need to looki into issues with this?)
+        img_sub = img - bkg # subtract background
+        flux, fluxerr, flag = sep.sum_circle(img_sub, self.source['X'], self.source['Y'], self.aperture_size, err=bkg.globalrms)
+        # get flux values from source extraction package
+        magnitudes = -2.5*np.log(flux) # convert flux to instrumental magnitude
+        median_i = np.median(magnitudes) # median instrumental magnitudes
 
         ### retrieve magnitudes from catalog
-        time = hdr['DATE-OBS']
-        time = datetime.strptime(time, '%Y-%m-%dT%H:%M:%S.%f')
+        time = hdr['DATE-OBS'] # time image was taken
+        time = datetime.strptime(time, '%Y-%m-%dT%H:%M:%S.%f') # convert string to datetime object
         filt = hdr['FILTER']
         objects = self.world
 
-
+        # lookup data in the UCAC4 catalog by querying Vizier
         v = Vizier(columns=['UCAC4','+_r','RAJ2000','DEJ2000','Bmag','Vmag','rmag'])
         output = OrderedDict([('id',[]),('RA_C',[]),('DEC_C',[]),('RA_M',[]),('DEC_M',[]),('DIF',[]),('MAG_R',[]),('MAG_V',[]),('MAG_B',[]),('CMAG_R',[]),('CMAG_V',[]),('CMAG_B',[]),('DATETIME',[]),('IMGNAME',[])])
-        cmags = []
-        misfires = 0
-
+        cmags = [] # catalog magnitudes list
+        misfires = 0 # number of errors
         
+        for i in ['R','V','B']:
+            magtype = 'MAG_'+i
+            if i==filt:
+                output[magtype] = magnitudes
+            else:
+                output[magtype] = np.full(np.shape(magnitudes),'---',dtype="S3")
+
         for n in range(len(objects)):
-            catalog = 'UCAC4'
+            catalog = 'UCAC4' # specify catalog 
+            #(if needed, we can implement a method to change this based on the object, which is why it is defined *inside* the loop)
             result = v.query_region(coord.SkyCoord(ra=objects[n,0], dec=objects[n,1],
-            unit=(u.degree, u.degree), frame='fk5'),radius='2s',catalog=catalog)
+            unit=(u.degree, u.degree), frame='fk5'),radius='2s',catalog=catalog) # submit query at object coordinates with a radius of 2 arcseconds
             try:
-                result = result[0]
-            except:
+                result = result[0] # try to get the first result from the list of results (which is usually just 1 element)
+            except: # !! important, if we do not find a match we still save the data as this may be an anomoly or an object like an asteroid
                 prnt(self.filename,'No star match within 2 arcseconds')
                 misfires += 1 
                 output['id'].append('nan')
@@ -385,22 +389,24 @@ class Field:
                 output['DIF'].append('nan')
                 output['DATETIME'].append(time)
                 output['IMGNAME'].append(self.filename)
-                cmags.append('nan')
-                continue
+                cmags.append('nan') 
+                continue # skip to the next object by moving to the next iteration of the loop
 
-            ids = np.array(result['UCAC4'],str)
+            ids = np.array(result['UCAC4'],str) # get array of all the stars identified
             ra = np.array(result['RAJ2000'],float)
             dec = np.array(result['DEJ2000'],float) # catalog RA and Dec
             dif = np.array(result['_r'],float)
-            fluxtype = filt+'mag'
+            
+            fluxtype = filt+'mag' # get a variable for fluxtype to match to catalog magnitude types
             if filt=='R':
                 fluxtype = 'rmag'
+            
             flux = np.array(result[fluxtype],float)
 
-            for i in range(len(ids)):
-                if dif[i] <= 2 and i==np.argmin(dif): # min residual value and less than 2 arcsec off
+            for i in range(len(ids)): # for all the stars matched, 
+                if dif[i] <= 2 and i==np.argmin(dif): # pick the star w the min residual value and less than 2 arcsec off
                     prnt(self.filename,'Star match in %s, mag %s, residual %s arcsec' % (catalog,flux[i],dif[i]))
-                    output['id'].append(ids[i])
+                    output['id'].append(ids[i]) # add this data to the output dictionary 
                     output['RA_C'].append(ra[i])
                     output['DEC_C'].append(dec[i])
                     output['RA_M'].append(objects[n,0])
@@ -410,7 +416,6 @@ class Field:
                     output['IMGNAME'].append(self.filename)
                     cmags.append(flux[i])
 
-                    
                 else:
                     prnt(self.filename,'No star match within 2 arcseconds')
                     misfires += 1
@@ -426,23 +431,18 @@ class Field:
         print("\033c")
         header('Calibration & Source Extraction')
 
-        cmags_nonan = [k for k in cmags if not math.isnan(float(k))]
-        median_c = np.median(np.array(cmags_nonan))
+        cmags_nonan = [k for k in cmags if not math.isnan(float(k))] 
+        median_c = np.median(np.array(cmags_nonan)) # median of catalog magnitude values
 
-        d = median_c - median_i
-        magnitudes += d
-        for n in range(len(objects)):
-            for j in ['R','V','B']:
-                magtype = 'MAG_'+j
-                if j==filt:
-                    output[magtype].append(magnitudes[n])
-                else:
-                    output[magtype].append('---')
-                magtype = 'CMAG_'+j
-                if j==filt:
-                    output[magtype].append(cmags[n])
-                else:
-                    output[magtype].append('---')
+        d = median_c - median_i # difference is the difference between the medians
+        output['MAG_'+filt] += d # offset magnitudes by that difference 
+        
+        for i in ['R','V','B']:
+            magtype = 'CMAG_'+i
+            if i==filt:
+                output[magtype] = cmags
+            else:
+                output[magtype] = np.full(np.shape(cmags),'---',dtype="S3")
 
         return output
 
