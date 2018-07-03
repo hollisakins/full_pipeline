@@ -229,9 +229,9 @@ class Field:
         self.list_of_files  = [f for f in all_files if not f.endswith('.SRC')]
         src_files = [f for f in all_files if f.endswith('.SRC')]
         print('\tSearching %s for sky images...' % self.uncalibrated_path)
-        sleep(0.3)
+        sleep(1.5)
         print('\tSearching %s for calibration files...' % self.path_to_cal)
-        sleep(0.5)
+        sleep(2)
         print('\033c')
 
 
@@ -240,6 +240,7 @@ class Field:
 
 
     def Reduce(self):
+        print('\033c')
         header('Calibration & Source Extraction')
         light_h,light = self.hdr,self.img # bring up the hdr and image
         prnt(self.filename,'Successfully opened '+light_h['FILTER']+' image in '+self.uncalibrated_path,filename=True)
@@ -485,9 +486,11 @@ class Field:
                 writer.writerow(self.output.keys())
                 self.columnsWritten = True
             writer.writerows(zip(*self.output.values()))
+        print('\033c')
    
     def Extract(self):
         self.source = self.Source()
         self.world = self.Convert()
         self.output = self.Photometry()
         self.writeData()
+
