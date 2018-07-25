@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 import csv
 import math
-from datetime import datetime
+from datetime import datetime,timedelta
 from time import sleep
 import matplotlib.pyplot as plt
 import matplotlib
@@ -86,7 +86,8 @@ def openData(filename):
         dictionary[i]=np.array(df[i])
     return dictionary
 
-init()
+# init()
+header()
 sources = openData('sources.csv')
 
 
@@ -94,7 +95,7 @@ while True:
     choice = options('Star Entry: ',
                 ['[1] Star lookup by UCAC4 ID',
                 '[2] Star lookup by coordinates',
-                '[3] Bring up testing data',
+                '[3] View list of matched UCAC4 stars',
                 '[q] Quit the program'])
 
     if choice=='q':
@@ -102,7 +103,34 @@ while True:
         sys.exit()
 
     if choice=='3':
-        choice='643-094180'
+        choices = [v for v in sources['id'] if not v=='nan']
+        choices,counts = np.unique(choices,return_counts=True)
+        choices = [v for v in choices if not v=='nan']
+        a = []
+        for j in range(len(choices)):
+            a.append((choices[j],counts[j])) 
+        dtype = [('id', 'U10'), ('count', int)]
+        a = np.array(a, dtype=dtype)
+        choices = np.sort(a, order='count')
+        choices = np.flip(choices,axis=0)        
+        linelength = 0
+        print('')
+        print('\t(sorted by amount of data)')
+        print('\t',end='')
+        for m in range(len(choices)-1):
+            spaces = ' '*(5-len(str(m+1)))
+            printstatement = '%s: %s%s' % (m+1, str(choices[m][0]),spaces)
+            if linelength>(termsize-55):
+                linelength = 0
+                print(printstatement,end='\n\t')
+                linelength += len(printstatement)
+            else:
+                print(printstatement,end='')
+                linelength += len(printstatement)
+
+
+        choice=int(input("\n\n\tSelection (number): "))
+        choice = str(choices[choice-1][0])
         printright('Choice Registered: Test Star '+choice,clear=True)
         indices = np.nonzero(sources['id']==choice)[0]
         printright('%s data points found' % len(indices),delay=True)
@@ -169,12 +197,14 @@ while True:
             end = datetime.strptime(np.amax(sources['DATETIME']), '%Y-%m-%d %H:%M:%S.%f')
             printright('Choice Registered: All time data',clear=True,delay=True)
 
-        mags,time = [],[]
+        mags,error,time = [],[],[]
         for x in indices:
             mags.append(sources['MAG_'+filt][x])
+            error.append(sources['MAG_err'][x])
             time.append(datetime.strptime(sources['DATETIME'][x], '%Y-%m-%d %H:%M:%S.%f'))
 
         mags = [mags[x] for x in range(len(mags)) if isinstance(mags[x], float)]
+        error = [error[x] for x in range(len(error)) if isinstance(error[x], float)]
         try:
             time = [time[x] for x in range(len(time)) if isinstance(mags[x], float)]
         except IndexError:
@@ -189,8 +219,17 @@ while True:
             continue
 
         saveflag = input("\tSave plot as file? [y/n]: ")
+
+
         plt.figure(figsize=(10,8))
-        plt.scatter(time, mags, c='k', marker='.', label=filt+' mag')
+        plt.errorbar(time, mags, c='k', label=filt+' mag',yerr=error,fmt='.')
+        
+        duration = end - start
+        date_list = [start + timedelta(seconds=x) for x in range(0, int(duration.total_seconds()))]
+        cmag = np.mean([sources['CMAG_'+filt][c] for c in indices])
+        cmags = [cmag for r in range(len(date_list))]
+        plt.plot(date_list,cmags,linestyle='dashdot',color='black',label='Catalog '+filt+' mag')
+
         plt.legend()
         plt.gca().invert_yaxis()
 
@@ -263,6 +302,8 @@ while True:
         plt.scatter(time[0], mags[0], c='r', marker='.', label='R mag')
         plt.scatter(time[1], mags[1], c='g', marker='.', label='V mag')
         plt.scatter(time[2], mags[2], c='b', marker='.', label='B mag')
+
+
         plt.legend()
         plt.gca().invert_yaxis()
 

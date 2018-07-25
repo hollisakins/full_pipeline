@@ -14,6 +14,8 @@ import csv
 import sys
 import shutil
 from collections import OrderedDict
+from photutils import CircularAperture, CircularAnnulus, aperture_photometry, Background2D, MedianBackground
+from astropy.stats import SigmaClip
 
 # defines the width of the console to print output more clearly 
 rows, columns = os.popen('stty size', 'r').read().split()
@@ -26,8 +28,8 @@ warnings.catch_warnings()
 warnings.simplefilter('ignore')
 
 slow = False # if slow=True it will pause between printing each line just to make it easier to read
-# function for printing the output consistently 
 
+# function for printing the output consistently 
 def prnt(indent,strng,filename=False):
     # if filename=True it will print the name of the file at the left
     if slow:
@@ -49,17 +51,16 @@ def header(i):
     print('')
 
 
-def makeMasters(path_to_cal,writeOver=False):
+def makeMasters(writeOver=False):
     '''Index calibration files and generate masters. 
 
-    Takes argument path_to_cal as the path to the calibration files, but will only search in 
-    the most recent date directory in that path. For example, makeMasters('ArchCal/') will search
-    'ArchCal/20180701/' if that is the most recent date directory available.
+    Searches for calibration files in the most recent date directory under 'ArchCal/'. 
+    For example, makeMasters() will search 'ArchCal/20180701/' if that is the most recent date directory available.
 
     Opt. Argument writeOver=False can be changed to True to allow older bias & dark frames to be
     over written by more recent ones.
     '''
-
+    path_to_cal = 'ArchCal/'
     dates = [f for f in os.listdir(path_to_cal) if not f.startswith('.')] # index date folders in ArchCal
     path_to_cal += max(dates)+'/' # specify path as most recent date
     filenames = [f for f in os.listdir(path_to_cal) if os.path.isfile(os.path.join(path_to_cal,f)) if not f.startswith('.')] # list of filenames to process
@@ -72,6 +73,7 @@ def makeMasters(path_to_cal,writeOver=False):
     bias1,dark1,Red1,Green1,Blue1,R1,V1,B1,Halpha1,Lum1,filters1 = [],[],[],[],[],[],[],[],[],[],[] # initialize lists
     bias2,dark2,Red2,Green2,Blue2,R2,V2,B2,Halpha2,Lum2,filters2 = [],[],[],[],[],[],[],[],[],[],[] # initialize lists
     bias3,dark3,Red3,Green3,Blue3,R3,V3,B3,Halpha3,Lum3,filters3 = [],[],[],[],[],[],[],[],[],[],[] # initialize lists
+    bias4,dark4,Red4,Green4,Blue4,R4,V4,B4,Halpha4,Lum4,filters4 = [],[],[],[],[],[],[],[],[],[],[] # initialize lists
     # lists are used to store the data for each calibration file and then combine into a master
     # each element in these lists will be a NxN numpy array of the fits data
 
@@ -97,27 +99,27 @@ def makeMasters(path_to_cal,writeOver=False):
                 exec(hdr['FILTER']+str(binn)+'.append(img)') 
     
     print('')
-    print('\tIndexed files:        Binning1x1  Binning2x2  Binning3x3')
-    print('\t\tBias:             %s          %s          %s' % (len(bias1),len(bias2),len(bias3)))
-    print('\t\tDark:             %s          %s          %s' % (len(dark1),len(dark2),len(dark3)))
-    print('\t\tRed Flat:         %s          %s          %s' % (len(Red1),len(Red2),len(Red3)))
-    print('\t\tGreen Flat:       %s          %s          %s' % (len(Green1),len(Green2),len(Green3)))
-    print('\t\tBlue Flat:        %s          %s          %s' % (len(Blue1),len(Blue2),len(Blue3)))
-    print('\t\tR Flat:           %s          %s          %s' % (len(R1),len(R2),len(R3)))
-    print('\t\tV Flat:           %s          %s          %s' % (len(V1),len(V2),len(V3)))
-    print('\t\tB Flat:           %s          %s          %s' % (len(B1),len(B2),len(B3)))
-    print('\t\tHalpha Flat:      %s          %s          %s' % (len(Halpha1),len(Halpha2),len(Halpha3)))
-    print('\t\tLum Flat:         %s          %s          %s' % (len(Lum1),len(Lum2),len(Lum3)))
+    print('\tIndexed files:        Binning1x1  Binning2x2  Binning3x3  Binning4x4')
+    print('\t\tBias:             %s          %s          %s          %s' % (len(bias1),len(bias2),len(bias3),len(bias4)))
+    print('\t\tDark:             %s          %s          %s          %s' % (len(dark1),len(dark2),len(dark3),len(dark4)))
+    print('\t\tRed Flat:         %s          %s          %s          %s' % (len(Red1),len(Red2),len(Red3),len(Red4)))
+    print('\t\tGreen Flat:       %s          %s          %s          %s' % (len(Green1),len(Green2),len(Green3),len(Green4)))
+    print('\t\tBlue Flat:        %s          %s          %s          %s' % (len(Blue1),len(Blue2),len(Blue3),len(Blue4)))
+    print('\t\tR Flat:           %s          %s          %s          %s' % (len(R1),len(R2),len(R3),len(R4)))
+    print('\t\tV Flat:           %s          %s          %s          %s' % (len(V1),len(V2),len(V3),len(V4)))
+    print('\t\tB Flat:           %s          %s          %s          %s' % (len(B1),len(B2),len(B3),len(B4)))
+    print('\t\tHalpha Flat:      %s          %s          %s          %s' % (len(Halpha1),len(Halpha2),len(Halpha3),len(Halpha4)))
+    print('\t\tLum Flat:         %s          %s          %s          %s' % (len(Lum1),len(Lum2),len(Lum3),len(Lum4)))
     print('')
 
     ## make the masters
-    for i in ['1','2','3']: # for each binning factor 
+    for i in ['1','2','3','4']: # for each binning factor 
         exec('s=np.size(bias'+i+')') # define var s as the size of the list
         if not s==0: # if the size is nonzero, there is data for that type & binning
             exec('bias'+i+'_master=np.median(np.array(bias'+i+'),axis=0)') # define bias master as the 
             print('\tConstructed a master bias with binning %sx%s' % (i,i))
 
-    for i in ['1','2','3']:
+    for i in ['1','2','3','4']:
         exec('s=np.size(dark'+i+')')
         if not s==0:
             try: # try to  make dark master
@@ -128,7 +130,7 @@ def makeMasters(path_to_cal,writeOver=False):
                 with open('DR_errorlog.txt','a') as erlog:
                     erlog.write('Failed to create scalable dark with binning %sx%s, no bias master present at'+strftime("%Y%m%d %H:%M GMT", gmtime()))
 
-    for j in ['1','2','3']: 
+    for j in ['1','2','3','4']: 
         exec('f=np.unique(filters'+j+')') # establish unique filters 
         for i in f: # for each UNIQUE filter
             exec('s=np.size('+i+j+')')
@@ -138,7 +140,7 @@ def makeMasters(path_to_cal,writeOver=False):
     
 
     # write the masters to fits files
-    for i in ['1','2','3']:
+    for i in ['1','2','3','4']:
         for j in ['bias','dark']: # for now: do not overwrite old bias / dark masters
             if j+i+'_master' in locals():
                 try:
@@ -148,7 +150,7 @@ def makeMasters(path_to_cal,writeOver=False):
                 except:
                     print('\tBias or dark master already exists, no new file written')
 
-    for i in ['1','2','3']:
+    for i in ['1','2','3','4']:
         exec('f=np.unique(filters'+i+')')
         for j in f: # only overwrite flats for the unique filters that we chose to update that night
             code = "fits.writeto('MasterCal/binning"+i+'/'+"flat_master_"+j+".fit',"+j+i+"_master,header="+j+i+"_header,overwrite=True)"
@@ -226,12 +228,13 @@ class Field:
         if not os.path.exists(self.calibrated_path):
             os.makedirs(self.calibrated_path)
         all_files = [f for f in os.listdir(self.uncalibrated_path) if os.path.isfile(os.path.join(self.uncalibrated_path,f)) and not f.startswith('.')]
-        self.list_of_files  = [f for f in all_files if not f.endswith('.SRC')]
+        self.list_of_files  = [f.rstrip() for f in all_files if f.endswith('.fits') or f.endswith('.fit')]
+
         src_files = [f for f in all_files if f.endswith('.SRC')]
         print('\tSearching %s for sky images...' % self.uncalibrated_path)
-        sleep(1.5)
+        sleep(0.3)
         print('\tSearching %s for calibration files...' % self.path_to_cal)
-        sleep(2)
+        sleep(0.3)
         print('\033c')
 
 
@@ -242,6 +245,7 @@ class Field:
     def Reduce(self):
         print('\033c')
         header('Calibration & Source Extraction')
+        
         light_h,light = self.hdr,self.img # bring up the hdr and image
         prnt(self.filename,'Successfully opened '+light_h['FILTER']+' image in '+self.uncalibrated_path,filename=True)
         self.path_to_cal = 'MasterCal/binning'+str(light_h['XBINNING'])+'/' # search for calibration files in binning-specific folder
@@ -349,12 +353,25 @@ class Field:
     def Photometry(self):
         ### perform aperture photometry
         hdr,img = self.hdr,self.img
+        egain = float(hdr['EGAIN'])
+
         bkg = sep.Background(img) # get background noise from image (maybe need to looki into issues with this?)
         img_sub = img - bkg # subtract background
         flux, fluxerr, flag = sep.sum_circle(img_sub, self.source['X'], self.source['Y'], self.aperture_size, err=bkg.globalrms)
         # get flux values from source extraction package
-        magnitudes = -2.5*np.log(flux) # convert flux to instrumental magnitude
-        median_i = np.median(magnitudes) # median instrumental magnitudes
+        instmag = -2.5*np.log10(flux) # convert flux to instrumental magnitude
+        snr = np.sqrt(flux*egain)
+        instmag_err = 1/snr
+
+        for j in flux:
+            if j<0:
+                print('Negative')
+
+        # snr = np.sqrt(final_sum*egain) 
+
+        # instmag_err = 1/snr
+        # instmag = -2.5*np.log10(final_sum)
+
 
         ### retrieve magnitudes from catalog
         time = hdr['DATE-OBS'] # time image was taken
@@ -364,24 +381,24 @@ class Field:
 
         # lookup data in the UCAC4 catalog by querying Vizier
         v = Vizier(columns=['UCAC4','+_r','RAJ2000','DEJ2000','Bmag','Vmag','rmag'])
-        output = OrderedDict([('id',[]),('RA_C',[]),('DEC_C',[]),('RA_M',[]),('DEC_M',[]),('DIF',[]),('MAG_R',[]),('MAG_V',[]),('MAG_B',[]),('CMAG_R',[]),('CMAG_V',[]),('CMAG_B',[]),('DATETIME',[]),('IMGNAME',[])])
+        output = OrderedDict([('id',[]),('RA_C',[]),('DEC_C',[]),('RA_M',[]),('DEC_M',[]),('DIF',[]),('MAG_R',[]),('MAG_V',[]),('MAG_B',[]),('MAG_err',[]),('CMAG_R',[]),('CMAG_V',[]),('CMAG_B',[]),('DATETIME',[]),('IMGNAME',[])])
+        output['MAG_err'] = instmag_err
         cmags = [] # catalog magnitudes list
         misfires = 0 # number of errors
         
-        for i in ['R','V','B']:
-            magtype = 'MAG_'+i
-            if i==filt:
-                output[magtype] = magnitudes
-            else:
-                output[magtype] = np.full(np.shape(magnitudes),'---',dtype="S3")
+        objects_indices_matched = []
 
         for n in range(len(objects)):
             catalog = 'UCAC4' # specify catalog 
             #(if needed, we can implement a method to change this based on the object, which is why it is defined *inside* the loop)
+            
             result = v.query_region(coord.SkyCoord(ra=objects[n,0], dec=objects[n,1],
             unit=(u.degree, u.degree), frame='fk5'),radius='2s',catalog=catalog) # submit query at object coordinates with a radius of 2 arcseconds
+            
             try:
+                # query_region returns result which is a TableList and we only need the first Table in the List
                 result = result[0] # try to get the first result from the list of results (which is usually just 1 element)
+                # but if there are NO tables in the list...
             except: # !! important, if we do not find a match we still save the data as this may be an anomoly or an object like an asteroid
                 prnt(self.filename,'No star match within 2 arcseconds')
                 misfires += 1 
@@ -408,7 +425,7 @@ class Field:
             flux = np.array(result[fluxtype],float)
 
             for i in range(len(ids)): # for all the stars matched, 
-                if dif[i] <= 2 and i==np.argmin(dif): # pick the star w the min residual value and less than 2 arcsec off
+                if dif[i] <= 2 and i==np.argmin(dif) and ids[i] not in output['id']: # pick the star w the min residual value and less than 2 arcsec off
                     prnt(self.filename,'Star match in %s, mag %s, residual %s arcsec' % (catalog,flux[i],dif[i]))
                     output['id'].append(ids[i]) # add this data to the output dictionary 
                     output['RA_C'].append(ra[i])
@@ -419,28 +436,53 @@ class Field:
                     output['DATETIME'].append(time)
                     output['IMGNAME'].append(self.filename)
                     cmags.append(flux[i])
+                    objects_indices_matched.append(n)
 
                 else:
                     prnt(self.filename,'No star match within 2 arcseconds')
                     misfires += 1
+                    output['id'].append('nan')
+                    output['RA_C'].append('nan')
+                    output['DEC_C'].append('nan')
+                    output['RA_M'].append(objects[n,0])
+                    output['DEC_M'].append(objects[n,1])
+                    output['DIF'].append('nan')
+                    output['DATETIME'].append(time)
+                    output['IMGNAME'].append(self.filename)
+                    cmags.append('nan') 
                     continue
 
 
         prnt(self.filename,'Output %s stars' % len(output['id']))
         prnt(self.filename,'Output %s unique stars' % len(set(output['id'])))
         prnt(self.filename,'Missed %s objects' % misfires)
-        prnt(self.filename,'Wrote magnitude data to sources.csv')
-        print(' ')
-        sleep(1)
-        print("\033c")
-        header('Calibration & Source Extraction')
-
-        cmags_nonan = [k for k in cmags if not math.isnan(float(k))] 
-        median_c = np.median(np.array(cmags_nonan)) # median of catalog magnitude values
-
-        d = median_c - median_i # difference is the difference between the medians
-        output['MAG_'+filt] += d # offset magnitudes by that difference 
         
+
+        instmags_to_median = [instmag[m] for m in objects_indices_matched]
+        cmags_nonan = [k for k in cmags if not math.isnan(float(k))] 
+        
+        if not len(instmags_to_median)==len(cmags_nonan):
+            raise Exception('Catalog comparison list not same length as instrumental magnitude list')
+
+        # with open(self.filename+'.csv', 'a') as outfile:
+        #     writer = csv.writer(outfile)
+        #     writer.writerows(magnitudes)
+
+        # median_i = np.median(np.array(instmags_to_median))
+        # median_c = np.median(np.array(cmags_nonan)) # median of catalog magnitude values
+        d = np.array(cmags_nonan) - np.array(instmags_to_median)
+        d = float(np.median(d))
+
+        # d = float(median_c) - float(median_i) # difference is the difference between the medians
+
+
+        for i in ['R','V','B']:
+            magtype = 'MAG_'+i
+            if i==filt:
+                output[magtype] = instmag
+            else:
+                output[magtype] = np.full(np.shape(instmag),'---',dtype="S3")
+
         for i in ['R','V','B']:
             magtype = 'CMAG_'+i
             if i==filt:
@@ -448,35 +490,49 @@ class Field:
             else:
                 output[magtype] = np.full(np.shape(cmags),'---',dtype="S3")
 
+        output['MAG_'+filt] += d # offset magnitudes by that difference 
+        
+        prnt(self.filename,'Wrote magnitude data to sources.csv')
+        sleep(3)
+        print(' ')
+        sleep(1)
+        print("\033c")
+        header('Calibration & Source Extraction')
+        
         return output
 
-    # def Plot(self):
-        #     hdr, img = self.hdr, self.img
-        #     proj = wcs.WCS(hdr)
-        #     fig = plt.figure(figsize=(13,10)) 
-        #     ax = fig.add_subplot(111,projection=proj)
-        #     m, s = np.mean(img), np.std(img)
-        #     im = ax.imshow(img, interpolation='nearest', cmap='gray',
-        #                 vmin=m-s, vmax=m+s, origin='lower')
+    def Plot(self):
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Ellipse
+        import matplotlib
+        
+        hdr, img = self.hdr, self.img
+        proj = wcs.WCS(hdr)
+        fig = plt.figure(figsize=(13,10)) 
+        ax = fig.add_subplot(111,projection=proj)
+        m, s = np.mean(img), np.std(img)
+        im = ax.imshow(img, interpolation='nearest', cmap='gray',
+                    vmin=m-s, vmax=m+s, origin='lower')
 
-        #     overlay = ax.get_coords_overlay('fk5')
-        #     overlay.grid(color='white', ls='dotted')
-        #     overlay[0].set_axislabel('Right Ascension (J2000)')
-        #     overlay[1].set_axislabel('Declination (J2000)')
+        overlay = ax.get_coords_overlay('fk5')
+        overlay.grid(color='white', ls='dotted')
+        overlay[0].set_axislabel('Right Ascension (J2000)')
+        overlay[1].set_axislabel('Declination (J2000)')
 
-        #     # plot an ellipse for each object
-        #     for i in range(len(self.source['X'])):
-        #         e = Ellipse(xy=(self.source['X'][i], self.source['Y'][i]),
-        #                     width=6*self.source['A'][i],
-        #                     height=6*self.source['B'][i],
-        #                     angle=self.source['theta'][i])
-        #         e.set_facecolor('none')
-        #         e.set_edgecolor('red')
-        #         ax.add_artist(e)
-        #     name = self.filename.replace('Calibrated Images/','TestImages/')
-        #     name = name.replace('.fits','.jpg')
-        #     plt.savefig(name)
-        #     print('    Created plot of %s' % self.filename)
+        # plot an ellipse for each object
+        for i in range(len(self.source['X'])):
+            e = Ellipse(xy=(self.source['X'][i], self.source['Y'][i]),
+                        width=6*self.source['A'][i],
+                        height=6*self.source['B'][i],
+                        angle=self.source['theta'][i])
+            e.set_facecolor('none')
+            e.set_edgecolor('red')
+            ax.add_artist(e)
+        name = self.filename.replace('Calibrated Images/','plots/')
+        name = name.replace('.fits','.jpg')
+        plt.savefig(name)
+        print('    Created plot of %s' % self.filename)
+
 
 
     def writeData(self):
